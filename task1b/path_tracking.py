@@ -66,53 +66,38 @@ def ackermann_wheel_angles(delta):
     `left_wheel_angle`  : [ float ]  angle for the left front wheel, radians
     `right_wheel_angle` : [ float ]  angle for the right front wheel, radians
     '''
+ #from task1a
+    if delta == 0.0:
+        return 0.0, 0.0
 
-    left_wheel_angle = 0
-    right_wheel_angle = 0
+    L = WHEELBASE
+    d = TRACK_WIDTH - 2 * WHEEL_OFFSET
 
-    return left_wheel_angle, right_wheel_angle
+    R = L / math.tan(delta)
 
+    left_angle  = math.atan(L / (R - d / 2))
+    right_angle = math.atan(L / (R + d / 2))
+
+    return left_angle, right_angle
 
 def compute_steering(target_y, current_values):
-    '''
-    Purpose:
-    ---
-    Compute the steering angle that drives the vehicle to `target_y` and keeps
-    it there. Called once per simulation step.
+    y = current_values["y"]
+    yaw = current_values["yaw"]
 
-    Input Arguments:
-    ---
-    `target_y` :        [ float ]
-        Lateral position to converge to, in metres - see LANE_Y below.
+    # positive error = vehicle is at larger y than the target, so it needs to go left
+    error = target_y - y
+    error = -error
 
-    `current_values` :  [ dict ]
-        {
-            "y"     : float,  current lateral position of the vehicle, in metres
-            "yaw"   : float,  current heading in radians, 0.0 when aligned with the road
-            "speed" : float,  current forward speed, in m/s
-            "dt"    : float,  seconds elapsed since the previous call
-            "t"     : float,  seconds since this run started
-        }
+    # outer loop: lateral error -> desired heading (capped so it never cuts across too hard)
+    K_POS = 1.5
+    MAX_HEADING = math.radians(25.0)
+    desired_yaw = max(-MAX_HEADING, min(MAX_HEADING, K_POS * error))
 
-    Returns:
-    ---
-    `steering` : [ float ]
-        Steering angle in radians. Positive turns the vehicle left, which on
-        this road means toward SMALLER y.
+    # inner loop: heading error -> steering angle
+    K_YAW = 2.0
+    steering = K_YAW * (desired_yaw - yaw)
 
-    NOTE:
-    ---
-    While you are debugging, printing or plotting from in here is fine - do
-    whatever helps you see what your controller is doing.
-
-    Before you submit, take all of it back out. The submitted function must
-    ONLY compute and return the steering angle: no print(), no plotting, and
-    no commanding the simulator - the control loop below does all of that.
-    '''
-
-    steering = 0
     return steering
-
 
 ##############################################################
 ################ END OF YOUR IMPLEMENTATION ##################

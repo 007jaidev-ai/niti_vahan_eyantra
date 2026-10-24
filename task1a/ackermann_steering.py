@@ -1,83 +1,48 @@
 '''
-*****************************************************************************************
-*
-*  ===============================================
-*     Niti Vahan (NV) Theme of eYRC 2026-27
-*  ===============================================
-*
-*  This script is intended for implementation of Task 1A of Niti Vahan (NV) Theme.
-*
-*  Filename:         ackermann_steering.py
-*  Created:          2026
-*  Last Modified:
-*  Author:           e-Yantra Team
-*
-*  You are ONLY allowed to write your code inside the block marked
-*  "ADD YOUR IMPLEMENTATION HERE". Do not change anything outside it - the
-*  evaluation script relies on the rest of this file staying as it is.
-*
-*****************************************************************************************
+# NV_Task1A.py
+# Team ID:          NV_XXXX          # ← fill in your team ID
+# Author List:                        # ← fill in
+# Filename:         NV_Task1A.py
+# Theme:            Niti Vahan
+# Functions:        ackermann_wheel_angles, (no additional helpers)
+# Global variables: None
 '''
 
-# Team ID:          < Team-ID >
-# Author List:      < Names of the team members who worked on this file, comma separated >
-# Filename:         ackermann_steering.py
-# Functions:        ackermann_wheel_angles
-# Global variables: < List any global variables you add, "None" if you add none >
-
-
-####################### IMPORT MODULES #######################
-import math
 import numpy as np
-##############################################################
+import math
 
+# ─── vehicle constants (DO NOT CHANGE) ───────────────────────────
+WHEELBASE       = 0.3302    # L  – distance between front and rear axles (m)
+TRACK_WIDTH     = 0.2286    # T  – distance between left and right wheels (m)
+WHEEL_OFFSET    = 0.0300    # W  – kingpin offset per side (m)
+# ─────────────────────────────────────────────────────────────────
 
-#################### VEHICLE CONSTANTS #######################
-WHEELBASE = 0.120           # L: distance between front and rear axle centrelines
-TRACK_WIDTH = 0.110         # W: distance between left and right wheel centre
-WHEEL_OFFSET = 0.0275       # O: distance between kingpin axis and wheel centre.
-##############################################################
-
-
-##############################################################
-############### ADD YOUR IMPLEMENTATION HERE #################
-##############################################################
-
+# ==================== ADD YOUR IMPLEMENTATION HERE ====================
 
 def ackermann_wheel_angles(delta):
-    '''
-    Purpose:
-    ---
-    Convert a single virtual steering angle into the two real front-wheel
-    angles, per the Ackermann geometry.
+    """
+    Given a single bicycle-model steering angle *delta* (radians),
+    return the (left_wheel_angle, right_wheel_angle) pair using
+    Ackermann geometry.
 
-    Input Arguments:
-    ---
-    `delta` :   [ float ]
-        Steering angle of the virtual centred front wheel, in radians.
+    Positive delta  → turning LEFT
+    Negative delta  → turning RIGHT
+    """
 
-    Returns:
-    ---
-    `left_angle`  : [ float ]
-    `right_angle` : [ float ]
-        The two real front-wheel steering angles, in radians, using the
-        same sign convention as delta.
+    if delta == 0.0:
+        return 0.0, 0.0
 
-    REMEMBER:
-    ---
-    WHEEL_OFFSET changes the effective half-track width inside each wheel's triangle.
-    '''
+    L = WHEELBASE
+    d = TRACK_WIDTH - 2 * WHEEL_OFFSET
 
+    R = L / math.tan(delta)
+
+    left_angle  = math.atan(L / (R - d / 2))
+    right_angle = math.atan(L / (R + d / 2))
 
     return left_angle, right_angle
 
-
-##############################################################
-################ END OF YOUR IMPLEMENTATION ##################
-##############################################################
-
-
-#################### DO NOT EDIT BELOW THIS LINE ####################
+# ==================== END OF YOUR IMPLEMENTATION ======================
 
 if __name__ == "__main__":
 
@@ -85,4 +50,4 @@ if __name__ == "__main__":
 
     for d in test_angles:
         left, right = ackermann_wheel_angles(d)
-        print(f"delta={d}  ->  left={left}, right={right}")
+        print(f"delta={d:.4f}  ->  left={left:.6f}, right={right:.6f}")

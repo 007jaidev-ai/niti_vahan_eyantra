@@ -94,11 +94,73 @@ def detect_lane(frame):
     center_x = -1
     lane = LANE_UNKNOWN
 
-    #################### ADD YOUR CODE HERE ####################
-    # 1. Isolate the lane markings in `frame`
-    # 2. Work out which two markings bracket the vehicle
-    # 3. Compute the x-pixel of the lane centre   ->  center_x
-    # 4. Decide which lane the vehicle is in      ->  lane
+    
+    height, width = frame.shape[:2]
+    
+    # 1. Focus on the road region just ahead of the hood
+    roi_top = int(height * 0.72)
+    roi_bottom = int(height * 0.92)
+    roi = frame[roi_top:roi_bottom, :]
+    
+    # Convert to HSV color space for robust color isolation
+    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+    
+    # Mask Yellow line (solid outer boundary)
+    lower_yellow = np.array([18, 120, 120], dtype=np.uint8)
+    upper_yellow = np.array([35, 255, 255], dtype=np.uint8)
+    yellow_mask = cv2.inRange(hsv, lower_yellow, upper_yellow)
+    
+    # Mask White line (dashed center divider)
+    lower_white = np.array([0, 0, 180], dtype=np.uint8)
+    upper_white = np.array([180, 45, 255], dtype=np.uint8)
+    white_mask = cv2.inRange(hsv, lower_white, upper_white)
+    
+    # Sum masks along columns to create 1D horizontal profiles
+    hist_yellow = np.sum(yellow_mask, axis=0)
+    hist_white = np.sum(white_mask, axis=0)
+    
+    THRESHOLD = 300
+    yellow_x = int(np.argmax(hist_yellow)) if np.max(hist_yellow) > THRESHOLD else None
+    white_x = int(np.argmax(hist_white)) if np.max(hist_white) > THRESHOLD else None
+    
+    LANE_WIDTH = 315  # standard lane width in pixels
+    vehicle_x = width // 2  # vehicle is centered at 320 px
+    
+    # 2. Decide which lane the vehicle is in based on the dashed white line position
+    if white_x is not None:
+        if white_x > vehicle_x:
+            lane = "left"   # Dashed divider is to the right of the vehicle
+        else:
+            lane = "right"  # Dashed divider is to the left of the vehicle
+    elif yellow_x is not None:
+        # If the white dash is momentarily invisible in a gap, infer from yellow border
+        if yellow_x < vehicle_x:
+            lane = "left"   # Yellow border is on the left
+        else:
+            lane = "right"  # Yellow border is on the right
+    else:
+        lane = "unknown"
+        
+    # 3. Compute the lane centre (center_x)
+    if yellow_x is not None and white_x is not None:
+        center_x = int((yellow_x + white_x) // 2)
+    elif yellow_x is not None:
+        # Infer center from yellow border
+        if yellow_x < vehicle_x:
+            center_x = int(yellow_x + (LANE_WIDTH // 2))
+        else:
+            center_x = int(yellow_x - (LANE_WIDTH // 2))
+    elif white_x is not None:
+        # Infer center from white dashed line
+        if white_x > vehicle_x:
+            center_x = int(white_x - (LANE_WIDTH // 2))
+        else:
+            center_x = int(white_x + (LANE_WIDTH // 2))
+    else:
+        center_x = -1
+        
+    if center_x != -1:
+        center_x = max(0, min(width - 1, center_x))
     ############################################################
 
     return {"center_x": center_x, "lane": lane}
