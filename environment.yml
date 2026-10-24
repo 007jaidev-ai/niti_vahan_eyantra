@@ -1,0 +1,11 @@
+name: NV_3156
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - python=3.10
+  - numpy
+  - pip
+  - pip:
+    - opencv-python
+    - coppeliasim-zmqremoteapi-client
