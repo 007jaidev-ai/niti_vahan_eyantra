@@ -77,13 +77,78 @@ def detect_signs(image):
     '''
 
     detections = []
+    import math
 
-    #################### ADD YOUR CODE HERE ####################
-    # 1. Isolate each sign's colour in `image`
-    # 2. Separate the individual sign-shaped regions
-    # 3. Work out which SIGN_LABELS entry each region is        -> label
-    # 4. Measure each region's area in pixels                   -> area
-    ############################################################
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    kernel = np.ones((3, 3), np.uint8)
+
+    # --- Red signs: School (triangle) and Speed40 (circle) ---
+    red1 = cv2.inRange(hsv, np.array([0, 70, 50]), np.array([10, 255, 255]))
+    red2 = cv2.inRange(hsv, np.array([160, 70, 50]), np.array([180, 255, 255]))
+    red_mask = red1 | red2
+    red_clean = cv2.morphologyEx(red_mask, cv2.MORPH_CLOSE, kernel, iterations=2)
+    red_clean = cv2.morphologyEx(red_clean, cv2.MORPH_OPEN, kernel)
+
+    contours_r, hierarchy_r = cv2.findContours(
+        red_clean, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+    for i, cnt in enumerate(contours_r):
+        area = cv2.contourArea(cnt)
+        if area < 150:
+            continue
+        if hierarchy_r is not None and hierarchy_r[0][i][3] != -1:
+            continue
+        peri = cv2.arcLength(cnt, True)
+        if peri < 10:
+            continue
+        approx = cv2.approxPolyDP(cnt, 0.03 * peri, True)
+        circularity = 4 * math.pi * area / (peri * peri)
+        x, y, w, h = cv2.boundingRect(cnt)
+        aspect = w / max(h, 1)
+
+        if len(approx) <= 5 and circularity < 0.55 and 0.6 < aspect < 1.8 and area > 180:
+            detections.append({"label": "School", "area": int(area)})
+        elif circularity > 0.55 and 0.65 < aspect < 1.5 and area > 180:
+            detections.append({"label": "Speed40", "area": int(area)})
+
+    # --- Blue signs: Parking and Hospital ---
+    blue_mask = cv2.inRange(hsv, np.array([95, 70, 40]), np.array([140, 255, 255]))
+    blue_clean = cv2.morphologyEx(blue_mask, cv2.MORPH_CLOSE, kernel, iterations=2)
+    blue_clean = cv2.morphologyEx(blue_clean, cv2.MORPH_OPEN, kernel)
+
+    contours_b, _ = cv2.findContours(
+        blue_clean, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    for cnt in contours_b:
+        area = cv2.contourArea(cnt)
+        if area < 150:
+            continue
+        x, y, w, h = cv2.boundingRect(cnt)
+        aspect = w / max(h, 1)
+        if not (0.5 < aspect < 2.0):
+            continue
+
+        roi = image[y:y+h, x:x+w]
+        if roi.size == 0:
+            continue
+        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+        _, white_roi = cv2.threshold(gray, 160, 255, cv2.THRESH_BINARY)
+
+        rh, rw = white_roi.shape
+        if rh < 4 or rw < 4:
+            continue
+        total_white = np.sum(white_roi > 0)
+        if total_white < 10:
+            continue
+
+        br = white_roi[rh // 2:, rw // 2:]
+        br_white = np.sum(br > 0)
+        br_ratio = br_white / total_white
+
+        if br_ratio > 0.15:
+            detections.append({"label": "Hospital", "area": int(area)})
+        else:
+            detections.append({"label": "Parking", "area": int(area)})
 
     return detections
 
@@ -120,16 +185,49 @@ def detect_obstacle(image):
     function's.
     '''
 
-    present = False
-    area = 0
+    import math
 
-    #################### ADD YOUR CODE HERE ####################
-    # 1. Isolate the obstacle's colour in `image`
-    # 2. Tell it apart from a same-coloured sign
-    # 3. Report whether it is present               -> present
-    # 4. Measure its area in pixels, if present      -> area
-    ############################################################
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    h_img = image.shape[0]
 
+    red1 = cv2.inRange(hsv, np.array([0, 50, 50]), np.array([15, 255, 255]))
+    red2 = cv2.inRange(hsv, np.array([155, 50, 50]), np.array([180, 255, 255]))
+    red_mask = red1 | red2
+
+    kernel = np.ones((5, 5), np.uint8)
+    red_clean = cv2.morphologyEx(red_mask, cv2.MORPH_CLOSE, kernel, iterations=2)
+    red_clean = cv2.morphologyEx(red_clean, cv2.MORPH_OPEN, kernel)
+
+    contours, _ = cv2.findContours(
+        red_clean, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    obstacle_area = 0
+    for cnt in contours:
+        a = cv2.contourArea(cnt)
+        if a < 300:
+            continue
+        peri = cv2.arcLength(cnt, True)
+        if peri < 10:
+            continue
+        approx = cv2.approxPolyDP(cnt, 0.03 * peri, True)
+        circularity = 4 * math.pi * a / (peri * peri)
+        x, y, w, h = cv2.boundingRect(cnt)
+        aspect = w / max(h, 1)
+
+        is_triangle = len(approx) <= 5 and circularity < 0.55 and 0.6 < aspect < 1.8
+        is_circle = circularity > 0.6 and 0.65 < aspect < 1.5
+
+        if is_triangle or is_circle:
+            continue
+
+        cy = y + h // 2
+        if cy < h_img * 0.25:
+            continue
+
+        obstacle_area += int(a)
+
+    present = obstacle_area > 0
+    area = obstacle_area if present else 0
     return {"present": present, "area": area}
 
 

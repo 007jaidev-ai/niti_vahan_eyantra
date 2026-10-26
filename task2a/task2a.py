@@ -54,102 +54,104 @@ STOP_SIGNAL = 'NV_stop'
 ############### ADD YOUR IMPLEMENTATION HERE #################
 ##############################################################
 
-def detect_lane(frame):
-    '''
-    Purpose:
-    ---
-    Work out, from a single camera frame, how wrong the vehicle currently is -
-    and hand back whatever `compute_control()` needs in order to correct it.
+import math
 
-    This is your Task 1C detector, extended. Task 1C answered *where the lane
-    centre is* and *which lane the vehicle is in*; a controller cannot use
-    either of those directly. It needs to know how far the vehicle is from
-    where it should be, and which way it is pointing.
+WHEELBASE = 0.120
+TRACK_WIDTH = 0.110
+WHEEL_OFFSET = 0.0275
+CRUISE_SPEED = 1.2
+MAX_STEER = math.radians(35)
 
-    Input Arguments:
-    ---
-    `frame` :   [ numpy.ndarray ]
-        One BGR frame from the vehicle's camera, of shape (height, width, 3),
-        the right way up and in the right colour order.
+_prev_cte = 0
+_last_steer = 0.0
 
-    Returns:
-    ---
-    Anything you like - a tuple, a dictionary, your own class. Whatever you
-    return here is passed straight to compute_control() and nowhere else, so
-    the two functions only have to agree with each other.
 
-    Example call:
-    ---
-    detection = detect_lane(frame)
+def _ackermann(delta):
+    if abs(delta) < 1e-9:
+        return 0.0, 0.0
+    L = WHEELBASE
+    d = TRACK_WIDTH - 2 * WHEEL_OFFSET
+    R = L / math.tan(delta)
+    return math.atan(L / (R - d / 2)), math.atan(L / (R + d / 2))
 
-    REMEMBER:
-    ---
-    Both lanes are driven during evaluation, and the arena looks mirrored from
-    the other one. Do not hard-code which side the boundary is on.
 
-    Do NOT call cv2.imshow() or cv2.imwrite() from inside this function.
-
-    You are marked on how closely you hold the MIDDLE of your lane, not merely
-    on staying the correct side of the dashed line.
-    '''
-
-    # ADD YOUR CODE HERE
-
+def _find_lane_center(y_hist, w_hist, mid, thresh=100):
+    k = np.ones(11) / 11
+    hy = np.convolve(y_hist.astype(float), k, 'same')
+    hw = np.convolve(w_hist.astype(float), k, 'same')
+    yl = int(np.argmax(hy[:mid])) if np.max(hy[:mid]) > thresh else None
+    yr = mid + int(np.argmax(hy[mid:])) if np.max(hy[mid:]) > thresh else None
+    wx = int(np.argmax(hw)) if np.max(hw) > thresh else None
+    if yl is not None and wx is not None and wx > yl + 15:
+        return (yl + wx) // 2
+    if yr is not None and wx is not None and wx < yr - 15:
+        return (wx + yr) // 2
+    if yl is not None and yr is not None and yr > yl + 30:
+        rc = (yl + yr) // 2
+        return (yl + rc) // 2 if mid < rc else (rc + yr) // 2
+    if yl is not None and wx is not None:
+        return (yl + wx) // 2
+    if yr is not None and wx is not None:
+        return (wx + yr) // 2
+    if wx is not None:
+        return (wx - 80) if wx > mid else (wx + 80)
+    if yl is not None:
+        return yl + 80
+    if yr is not None:
+        return yr - 80
     return None
 
 
+def detect_lane(frame):
+    h, w = frame.shape[:2]
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+    yellow = cv2.inRange(hsv, np.array([15, 80, 80]), np.array([40, 255, 255]))
+    white = cv2.inRange(hsv, np.array([0, 0, 155]), np.array([180, 60, 255]))
+
+    mid = w // 2
+
+    near_t, near_b = int(h * 0.75), int(h * 0.90)
+    far_t, far_b = int(h * 0.50), int(h * 0.65)
+
+    c_near = _find_lane_center(
+        np.sum(yellow[near_t:near_b], axis=0),
+        np.sum(white[near_t:near_b], axis=0), mid)
+
+    c_far = _find_lane_center(
+        np.sum(yellow[far_t:far_b], axis=0),
+        np.sum(white[far_t:far_b], axis=0), mid, thresh=60)
+
+    if c_near is not None:
+        cte = c_near - mid
+        heading = float(c_far - c_near) / max(near_t - far_t, 1) if c_far is not None else 0.0
+        return {'cte': cte, 'heading': heading, 'valid': True}
+    if c_far is not None:
+        return {'cte': c_far - mid, 'heading': 0.0, 'valid': True}
+    return {'cte': 0, 'heading': 0.0, 'valid': False}
+
+
 def compute_control(detection, stop_requested):
-    '''
-    Purpose:
-    ---
-    Turn the errors from detect_lane() into the three numbers the vehicle is
-    driven with, and obey the stop flag.
+    global _prev_cte, _last_steer
 
-    This is where your Task 1B controller and your Task 1A steering geometry
-    meet: work out one steering angle from the error, then split it into the
-    two front-wheel angles the joints actually take.
+    if detection is None or not detection.get('valid'):
+        l, r = _ackermann(_last_steer * 0.9)
+        speed = 0.0 if stop_requested else CRUISE_SPEED * 0.3
+        return l, r, speed
 
-    Input Arguments:
-    ---
-    `detection` :   [ any ]
-        Whatever detect_lane() returned for this frame.
+    cte = detection['cte']
+    heading = detection['heading']
 
-    `stop_requested` :  [ bool ]
-        True while the evaluation is holding the vehicle at a stop point.
-        This is a LEVEL, not a pulse: it stays True for the whole duration of
-        the stop and goes False when the wait is over. While it is True the
-        vehicle must be STATIONARY, so return a speed of 0.0. There is no
-        stopwatch for you to write and no duration to hard-code.
+    d_cte = cte - _prev_cte
+    _prev_cte = cte
 
-    Returns:
-    ---
-    `left_angle`, `right_angle` :   [ float ]
-        The two front-wheel steering angles, in RADIANS, written straight to
-        the steering joints. The scene's steering joints are POSITIVE TO THE
-        LEFT. Nothing is clamped for you - the vehicle's own limit is 45
-        degrees, and commanding past it will not steer any harder.
+    steer = -(0.004 * cte + 0.002 * d_cte + 0.5 * heading)
+    steer = max(-MAX_STEER, min(MAX_STEER, steer))
+    _last_steer = steer
 
-    `speed` :   [ float ]
-        Target velocity for both drive motors, in rad/s. 0.0 holds the
-        vehicle still.
-
-    Example call:
-    ---
-    left_angle, right_angle, speed = compute_control(detection, stop_requested)
-
-    REMEMBER:
-    ---
-    Keep the loop running while stopped - set the SPEED to zero, not your
-    program. If you stop reading frames you will not see the flag drop.
-
-    Sooner or later a frame comes back with nothing usable in it. Holding the
-    last steering angle, easing off the throttle and stopping dead are all
-    defensible - doing nothing is not.
-    '''
-
-    # ADD YOUR CODE HERE
-
-    return 0.0, 0.0, 0.0
+    l, r = _ackermann(steer)
+    speed = 0.0 if stop_requested else CRUISE_SPEED
+    return l, r, speed
 
 
 ##############################################################

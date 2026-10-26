@@ -68,74 +68,52 @@ BAY_WIDTH          = 0.22    # m - the vehicle is 0.18 m across
 ############### ADD YOUR IMPLEMENTATION HERE #################
 ##############################################################
 
+import math
+
+_park_last_steer = 0.0
+_park_stopped_frames = 0
+
+
 def parking_manoeuvre(pose):
-    '''
-    Purpose:
-    ---
-    Decide, every frame, how to steer and how fast to drive so that the
-    vehicle ends up inside the target bay - on its centre line, parallel to
-    it, stopped in the middle.
+    global _park_last_steer, _park_stopped_frames
 
-    This is the whole of Task 2C. Finding the marker in the camera image and
-    working out where the vehicle is relative to the bay is done for you
-    below; you are handed the answer as `pose` and decide what to do with it.
+    if pose is None:
+        return _park_last_steer, 0.3, False
 
-    Input Arguments:
-    ---
-    `pose` :    [ dict or None ]
-        None on a frame where the target bay's marker was not seen.
-        Otherwise where the vehicle is, relative to the target bay:
+    lateral = pose['lateral']
+    heading = pose['heading']
+    forward = pose['forward']
 
-          'lateral'  [float] metres. Sideways offset of the front axle from
-                             the bay's centre line. POSITIVE = the vehicle
-                             is to the LEFT of the line. 0 = on it.
-          'heading'  [float] radians. Direction the vehicle points, relative
-                             to the bay's long axis. 0 = parallel to the bay.
-                             POSITIVE = turned to the LEFT.
-          'forward'  [float] metres. Distance along the road from the
-                             vehicle's centre to the marker line. It shrinks
-                             as you approach: BAY_MOUTH_FORWARD at the mouth,
-                             BAY_MIDDLE_FORWARD in the middle of the bay.
-          'bearing'  [float] radians. Where the marker appears in the camera
-                             view. 0 = straight ahead, POSITIVE = to the LEFT.
+    remaining = forward - BAY_MIDDLE_FORWARD
 
-    Returns:
-    ---
-    `steering` :    [ float ]
-        Steering angle in RADIANS, POSITIVE TO THE LEFT. It is split into
-        the two front-wheel angles and clamped to the vehicle's 45 degree
-        limit for you.
+    if remaining < 0.03 and abs(lateral) < 0.018 and abs(heading) < math.radians(8):
+        _park_stopped_frames += 1
+        if _park_stopped_frames > 10:
+            return 0.0, 0.0, True
+        steer = -(2.0 * lateral + 0.5 * heading)
+        steer = max(-math.radians(15), min(math.radians(15), steer))
+        return steer, 0.0, False
 
-    `speed` :       [ float ]
-        Target velocity for both drive motors, in rad/s. Positive drives
-        forwards. 0.0 holds the vehicle still.
+    _park_stopped_frames = 0
 
-    `parked` :      [ bool ]
-        True once the vehicle is parked. Returning True stops the vehicle
-        and ends the run, so return it only when you are done.
+    look_ahead = max(remaining * 0.65, abs(lateral) * 1.3, 0.06)
+    angle_to_target = math.atan2(-lateral, look_ahead)
+    steer = angle_to_target - heading
 
-    Example call:
-    ---
-    steering, speed, parked = parking_manoeuvre(pose)
+    steer = max(-math.radians(38), min(math.radians(38), steer))
 
-    REMEMBER:
-    ---
-    Steering straight AT the marker is not parking. The bays are to the
-    right of the road, so pointing at the marker brings the vehicle in on a
-    diagonal, and a car that arrives crooked does not fit a bay with ~20 mm
-    to spare each side. Both 'lateral' and 'heading' have to reach zero.
+    if remaining > 0.15:
+        speed = 1.5
+    elif remaining > 0.05:
+        speed = 0.8
+    else:
+        speed = 0.4
 
-    The camera is 95 degrees wide. Turn much more than ~40 degrees across the
-    road and the marker slides out of view - `pose` becomes None, and there
-    is nothing left to steer by.
+    if remaining < 0.10 and abs(heading) > math.radians(10):
+        speed = min(speed, 0.3)
 
-    A single None frame is normal. Decide what to do on one; doing nothing
-    sensible is how a vehicle drives off.
-    '''
-
-    # ADD YOUR CODE HERE
-
-    return 0.0, 0.0, False
+    _park_last_steer = steer
+    return steer, speed, False
 
 
 ##############################################################
