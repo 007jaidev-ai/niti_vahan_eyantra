@@ -82,48 +82,42 @@ evaluator reports these when it finds them.
 
 Full instructions are in the theme book.
 
-## Inner lane fix — what to tweak
+## Fixing the inner lane
 
-The outer lane works. The inner lane has tighter curves and the car falls off.
-Here's what to try, in order:
+Car works on outer lane but falls off on inner lane curves. Do these changes:
 
-### 1. Slow down on curves (quickest win)
-Reduce `CRUISE_SPEED` (line 62) from `1.2` to `0.9` or `1.0`. The inner lane
-curves are tight — less speed = more time to react.
+**Step 1** — Line 62, drop the speed:
+```
+CRUISE_SPEED = 1.2  -->  CRUISE_SPEED = 0.9
+```
 
-### 2. Increase steering gains
-In `compute_control` (line 148), the PID line is:
-```python
+**Step 2** — Line 63, allow harder steering:
+```
+MAX_STEER = math.radians(35)  -->  MAX_STEER = math.radians(40)
+```
+
+**Step 3** — Line 148, bump the gains. Change this:
+```
 steer = -(0.004 * cte + 0.002 * d_cte + 0.5 * heading)
 ```
-- Raise `0.004` (Kp) to `0.006` or `0.008` — stronger correction
-- Raise `0.5` (heading gain) to `0.8` or `1.0` — anticipates curves earlier
-- Raise `0.002` (Kd) to `0.003` — dampens oscillation
-
-### 3. Allow sharper steering
-Raise `MAX_STEER` (line 63) from `35` to `40` degrees.
-
-### 4. Add curve-dependent speed
-Replace the speed line in `compute_control` with:
-```python
-if stop_requested:
-    speed = 0.0
-else:
-    curve = abs(heading) + abs(cte) / 200.0
-    speed = CRUISE_SPEED * 0.5 if curve > 0.5 else CRUISE_SPEED
+to this:
+```
+steer = -(0.007 * cte + 0.003 * d_cte + 0.9 * heading)
 ```
 
-### 5. If lane markings aren't detected on curves
-Save a frame: add `cv2.imwrite('frame.png', frame)` at the top of
-`detect_lane()`, run once, remove it. Then check if the yellow/white
-thresholds (lines 109-110) need widening — lower the S/V minimums.
+**Step 4** — Line 153, slow down on curves instead of constant speed. Replace:
+```
+speed = 0.0 if stop_requested else CRUISE_SPEED
+```
+with:
+```
+if stop_requested:
+    speed = 0.0
+elif abs(heading) > 0.3 or abs(cte) > 60:
+    speed = CRUISE_SPEED * 0.5
+else:
+    speed = CRUISE_SPEED
+```
 
-### Key parameters
-
-| Parameter | Line | Value | What it does |
-|-----------|------|-------|-------------|
-| `CRUISE_SPEED` | 62 | 1.2 | Base speed (rad/s) |
-| `MAX_STEER` | 63 | 35 deg | Max steering angle |
-| `0.004` (Kp) | 148 | — | Corrects for being off-center |
-| `0.002` (Kd) | 148 | — | Dampens oscillation |
-| `0.5` (Kh) | 148 | — | Steers based on upcoming curve |
+Run it. If it still falls off, lower `CRUISE_SPEED` more (try 0.7).
+If it wobbles/zigzags on straights, bring `0.007` back down to `0.005`.
