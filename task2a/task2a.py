@@ -59,11 +59,13 @@ import math
 WHEELBASE = 0.120
 TRACK_WIDTH = 0.110
 WHEEL_OFFSET = 0.0275
-CRUISE_SPEED = 1.2
-MAX_STEER = math.radians(35)
+CRUISE_SPEED = 1.0
+MAX_STEER = math.radians(40)
 
 _prev_cte = 0
+_integral_cte = 0
 _last_steer = 0.0
+_frame_count = 0
 
 
 def _ackermann(delta):
@@ -76,7 +78,7 @@ def _ackermann(delta):
 
 
 def _find_lane_center(y_hist, w_hist, mid, thresh=100):
-    k = np.ones(11) / 11
+    k = np.ones(15) / 15
     hy = np.convolve(y_hist.astype(float), k, 'same')
     hw = np.convolve(w_hist.astype(float), k, 'same')
     yl = int(np.argmax(hy[:mid])) if np.max(hy[:mid]) > thresh else None
@@ -106,37 +108,55 @@ def detect_lane(frame):
     h, w = frame.shape[:2]
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
-    yellow = cv2.inRange(hsv, np.array([15, 80, 80]), np.array([40, 255, 255]))
-    white = cv2.inRange(hsv, np.array([0, 0, 155]), np.array([180, 60, 255]))
+    yellow = cv2.inRange(hsv, np.array([15, 60, 60]), np.array([40, 255, 255]))
+    white = cv2.inRange(hsv, np.array([0, 0, 140]), np.array([180, 70, 255]))
 
     mid = w // 2
 
-    near_t, near_b = int(h * 0.75), int(h * 0.90)
-    far_t, far_b = int(h * 0.50), int(h * 0.65)
+    rows = [
+        (int(h * 0.80), int(h * 0.90)),
+        (int(h * 0.68), int(h * 0.78)),
+        (int(h * 0.55), int(h * 0.65)),
+        (int(h * 0.42), int(h * 0.52)),
+    ]
 
-    c_near = _find_lane_center(
-        np.sum(yellow[near_t:near_b], axis=0),
-        np.sum(white[near_t:near_b], axis=0), mid)
+    centers = []
+    for rt, rb in rows:
+        c = _find_lane_center(
+            np.sum(yellow[rt:rb], axis=0),
+            np.sum(white[rt:rb], axis=0), mid,
+            thresh=60 if rt < h * 0.6 else 100)
+        centers.append(c)
 
-    c_far = _find_lane_center(
-        np.sum(yellow[far_t:far_b], axis=0),
-        np.sum(white[far_t:far_b], axis=0), mid, thresh=60)
+    c_near = centers[0] if centers[0] is not None else centers[1]
+    c_far = None
+    for c in reversed(centers[1:]):
+        if c is not None:
+            c_far = c
+            break
 
     if c_near is not None:
         cte = c_near - mid
-        heading = float(c_far - c_near) / max(near_t - far_t, 1) if c_far is not None else 0.0
-        return {'cte': cte, 'heading': heading, 'valid': True}
+        if c_far is not None and c_far != c_near:
+            heading = float(c_far - c_near) / float(len(rows) - 1)
+        else:
+            heading = 0.0
+        valid_count = sum(1 for c in centers if c is not None)
+        return {'cte': cte, 'heading': heading, 'valid': True,
+                'confidence': valid_count}
     if c_far is not None:
-        return {'cte': c_far - mid, 'heading': 0.0, 'valid': True}
-    return {'cte': 0, 'heading': 0.0, 'valid': False}
+        return {'cte': c_far - mid, 'heading': 0.0, 'valid': True,
+                'confidence': 1}
+    return {'cte': 0, 'heading': 0.0, 'valid': False, 'confidence': 0}
 
 
 def compute_control(detection, stop_requested):
-    global _prev_cte, _last_steer
+    global _prev_cte, _integral_cte, _last_steer, _frame_count
+    _frame_count += 1
 
     if detection is None or not detection.get('valid'):
-        l, r = _ackermann(_last_steer * 0.9)
-        speed = 0.0 if stop_requested else CRUISE_SPEED * 0.3
+        l, r = _ackermann(_last_steer * 0.95)
+        speed = 0.0 if stop_requested else CRUISE_SPEED * 0.25
         return l, r, speed
 
     cte = detection['cte']
@@ -145,12 +165,31 @@ def compute_control(detection, stop_requested):
     d_cte = cte - _prev_cte
     _prev_cte = cte
 
-    steer = -(0.004 * cte + 0.002 * d_cte + 0.5 * heading)
+    _integral_cte = _integral_cte * 0.95 + cte
+    _integral_cte = max(-500, min(500, _integral_cte))
+
+    Kp = 0.006
+    Kd = 0.003
+    Ki = 0.0003
+    Kh = 0.8
+
+    steer = -(Kp * cte + Kd * d_cte + Ki * _integral_cte + Kh * heading)
     steer = max(-MAX_STEER, min(MAX_STEER, steer))
     _last_steer = steer
 
     l, r = _ackermann(steer)
-    speed = 0.0 if stop_requested else CRUISE_SPEED
+
+    if stop_requested:
+        speed = 0.0
+    else:
+        curve_factor = abs(heading) + abs(cte) / 200.0
+        if curve_factor > 0.6:
+            speed = CRUISE_SPEED * 0.55
+        elif curve_factor > 0.3:
+            speed = CRUISE_SPEED * 0.75
+        else:
+            speed = CRUISE_SPEED
+
     return l, r, speed
 
 

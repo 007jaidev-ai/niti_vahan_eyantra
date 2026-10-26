@@ -81,3 +81,36 @@ the joints. Calling `sim.startSimulation()`, `sim.stopSimulation()` or
 evaluator reports these when it finds them.
 
 Full instructions are in the theme book.
+
+## Tuning notes (after code update for inner lane fix)
+
+The code now has stronger gains, 4 scan strips for heading, and adaptive speed.
+If it still misbehaves, tweak these:
+
+### Car still flies off on inner lane curves
+- Increase `Kp` from `0.006` to `0.008`
+- Increase `Kh` from `0.8` to `1.0`
+- Lower the curve slow-down factor from `0.55` to `0.4` (in `compute_control`)
+
+### Car oscillates or weaves on straights
+- Reduce `Kp` to `0.005`
+- Reduce `Kd` to `0.002`
+
+### Lane markings not being detected
+- Save a frame: add `cv2.imwrite('frame.png', frame)` at the top of `detect_lane()`, run once, remove it
+- Widen yellow HSV lower bound (currently `[15, 60, 60]`) - lower S/V
+- Widen white HSV lower bound (currently V=140) - lower it
+
+### Car too slow overall
+- Raise `CRUISE_SPEED` from `1.0` to `1.1`
+
+### Key parameters
+
+| Parameter | Value | What it does |
+|-----------|-------|-------------|
+| `CRUISE_SPEED` | 1.0 | Base speed (rad/s) |
+| `MAX_STEER` | 40 deg | Max steering angle |
+| `Kp` | 0.006 | Corrects for being off-center |
+| `Kd` | 0.003 | Dampens oscillation |
+| `Ki` | 0.0003 | Fixes persistent drift |
+| `Kh` | 0.8 | Steers based on upcoming curve |
