@@ -185,13 +185,11 @@ def detect_obstacle(image):
     function's.
     '''
 
-    import math
-
     hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-    h_img = image.shape[0]
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-    red1 = cv2.inRange(hsv, np.array([0, 50, 50]), np.array([15, 255, 255]))
-    red2 = cv2.inRange(hsv, np.array([155, 50, 50]), np.array([180, 255, 255]))
+    red1 = cv2.inRange(hsv, np.array([0, 50, 40]), np.array([15, 255, 255]))
+    red2 = cv2.inRange(hsv, np.array([155, 50, 40]), np.array([180, 255, 255]))
     red_mask = red1 | red2
 
     kernel = np.ones((5, 5), np.uint8)
@@ -204,24 +202,17 @@ def detect_obstacle(image):
     obstacle_area = 0
     for cnt in contours:
         a = cv2.contourArea(cnt)
-        if a < 300:
+        if a < 200:
             continue
-        peri = cv2.arcLength(cnt, True)
-        if peri < 10:
-            continue
-        approx = cv2.approxPolyDP(cnt, 0.03 * peri, True)
-        circularity = 4 * math.pi * a / (peri * peri)
         x, y, w, h = cv2.boundingRect(cnt)
-        aspect = w / max(h, 1)
-
-        is_triangle = len(approx) <= 5 and circularity < 0.55 and 0.6 < aspect < 1.8
-        is_circle = circularity > 0.6 and 0.65 < aspect < 1.5
-
-        if is_triangle or is_circle:
+        if w < 5 or h < 5:
             continue
 
-        cy = y + h // 2
-        if cy < h_img * 0.25:
+        roi_gray = gray[y:y+h, x:x+w]
+        _, white_in_roi = cv2.threshold(roi_gray, 170, 255, cv2.THRESH_BINARY)
+        white_ratio = np.sum(white_in_roi > 0) / max(w * h, 1)
+
+        if white_ratio > 0.15:
             continue
 
         obstacle_area += int(a)
